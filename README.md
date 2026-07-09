@@ -125,8 +125,8 @@ succeed:
 ```js
 // index.html (main document), served with no Permissions-Policy header.
 // These would all succeed:
-const worker = new Worker(“./worker.js”);
-const sharedWorker = new SharedWorker(“./shared-worker.js”);
+const worker = new Worker("./worker.js");
+const sharedWorker = new SharedWorker("./shared-worker.js");
 ```
 
 However, if the Permissions-Policy disables the needed feature, they would fail.
@@ -137,10 +137,10 @@ In particular,
 // Permissions-Policy: some-capability=().
 
 // The worker will not start. It will trigger worker.onerror.
-const worker = new Worker(“./worker.js”);
+const worker = new Worker("./worker.js");
 
 // The shared worker will not start. It will trigger sharedWorker.onerror.
-const sharedWorker = new SharedWorker(“./shared-worker.js”);
+const sharedWorker = new SharedWorker("./shared-worker.js");
 ```
 
 For workers started from cross-origin nested contexts, the Permissions Policy
@@ -149,13 +149,13 @@ the feature, then it cannot start a worker which needs that feature:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
-<iframe src=”https://cross-origin.test/iframe.html”>
+<iframe src="https://cross-origin.test/iframe.html">
 
 // https://cross-origin.test/iframe.html
 // The worker will not start. It will trigger worker.onerror.
-const worker = new Worker(“./worker.js”);
+const worker = new Worker("./worker.js");
 // The shared worker will not start. It will trigger sharedWorker.onerror.
-const sharedWorker = new SharedWorker(“./shared-worker.js”);
+const sharedWorker = new SharedWorker("./shared-worker.js");
 ```
 
 For that to work, the nested context needs to be allowed to use the delegated
@@ -163,12 +163,12 @@ capability:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
-<iframe src=”https://cross-origin.test/iframe.html” allow=”some-capability”>
+<iframe src="https://cross-origin.test/iframe.html" allow="some-capability">
 
 // https://cross-origin.test/iframe.html
 // These would all succeed:
-const worker = new Worker(“./worker.js”);
-const sharedWorker = new SharedWorker(“./shared-worker.js”);
+const worker = new Worker("./worker.js");
+const sharedWorker = new SharedWorker("./shared-worker.js");
 ```
 
 For enabling more granular control when delegating capabilities to workers, we
@@ -180,12 +180,12 @@ passed when creating/connecting to workers) which works analogously as the
 // index.html (main document), served with no Permissions-Policy header
 
 // The worker will not start. It will trigger worker.onerror.
-const worker = new Worker(“./worker.js”, {
-  allow = “some-capability ‘none’”
+const worker = new Worker("./worker.js", {
+  allow = "some-capability 'none'"
 });
 // The shared worker will not start. It will trigger sharedWorker.onerror.
-const sharedWorker = new SharedWorker(“./shared-worker.js”, {
-  allow = “some-capability ‘none’”
+const sharedWorker = new SharedWorker("./shared-worker.js", {
+  allow = "some-capability 'none'"
 });
 ```
 
@@ -254,7 +254,7 @@ const registration = await navigator.serviceWorker.register("/sw.js", {
 
 // another_page.html
 // This request can be intercepted by sw.js even if this page has no knowledge about it.
-fetch(“./resource.txt”);
+fetch("./resource.txt");
 ```
 
 For the logic above to apply cleanly to service workers, we would need to
