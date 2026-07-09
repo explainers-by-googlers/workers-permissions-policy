@@ -1,4 +1,4 @@
-# Explainer for extending Permissions Policy to workers
+# Explainer for Permissions Policy for workers
 
 This proposal is an early design sketch by the Chrome Permissions team to
 describe the problem below and solicit feedback on the proposed solution. It has
