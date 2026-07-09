@@ -1,26 +1,18 @@
-# Explainer for the TODO API
+# Explainer for extending Permissions Policy to workers
 
-**Instructions for the explainer author: Search for "todo" in this repository and update all the
-instances as appropriate. For the instances in `index.bs`, update the repository name, but you can
-leave the rest until you start the specification. Then delete the TODOs and this block of text.**
-
-This proposal is an early design sketch by [TODO: team] to describe the problem below and solicit
-feedback on the proposed solution. It has not been approved to ship in Chrome.
-
-TODO: Fill in the whole explainer template below using https://tag.w3.org/explainers/ as a
-reference. Look for [brackets].
+This proposal is an early design sketch by the Chrome Permissions team to
+describe the problem below and solicit feedback on the proposed solution. It has
+not been approved to ship in Chrome.
 
 ## Proponents
 
-- [Proponent team 1]
-- [Proponent team 2]
-- [etc.]
+- Chrome Permissions Team
 
 ## Participate
-- https://github.com/explainers-by-googlers/[your-repository-name]/issues
-- [Discussion forum]
 
-## Table of Contents [if the explainer is longer than one printed page]
+- https://github.com/explainers-by-googlers/workers-permissions-policy/issues
+
+## Table of Contents
 
 <!-- Update this table of contents by running `npx doctoc README.md` -->
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
@@ -29,157 +21,256 @@ reference. Look for [brackets].
 - [Introduction](#introduction)
 - [Goals](#goals)
 - [Non-goals](#non-goals)
-- [User research](#user-research)
-- [Use cases](#use-cases)
-  - [Use case 1](#use-case-1)
-  - [Use case 2](#use-case-2)
-- [[Potential Solution]](#potential-solution)
-  - [How this solution would solve the use cases](#how-this-solution-would-solve-the-use-cases)
-    - [Use case 1](#use-case-1-1)
-    - [Use case 2](#use-case-2-1)
-- [Detailed design discussion](#detailed-design-discussion)
-  - [[Tricky design choice #1]](#tricky-design-choice-1)
-  - [[Tricky design choice 2]](#tricky-design-choice-2)
+- [Example use case](#example-use-case)
+  - [SharedArrayBuffer and cross-origin isolation](#sharedarraybuffer-and-cross-origin-isolation)
+  - [Local network access](#local-network-access)
+- [Proposal](#proposal)
 - [Considered alternatives](#considered-alternatives)
-  - [[Alternative 1]](#alternative-1)
-  - [[Alternative 2]](#alternative-2)
+- [What about service workers?](#what-about-service-workers)
 - [Security and Privacy Considerations](#security-and-privacy-considerations)
-- [Stakeholder Feedback / Opposition](#stakeholder-feedback--opposition)
-- [References & acknowledgements](#references--acknowledgements)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 ## Introduction
 
-[The "executive summary" or "abstract".
-Explain in a few sentences what the goals of the project are,
-and a brief overview of how the solution works.
-This should be no more than 1-2 paragraphs.]
+Permissions Policy allows embedders to control delegation of powerful web
+capabilities to nested navigables. By default, Permissions Policy disables most
+capabilities in cross-origin nested navigables, and it provides explicit ways to
+enable them in specific contexts.
+
+Conceptually, there is no real reason why a mechanism like Permissions Policy
+shouldn’t exist for workers. However, on the one hand there has been no strong
+need to enable powerful capabilities in workers, and on the other hand finding a
+meaningful design that supports shared and service workers requires a slightly
+different model than the existing one, which is based on the single inheritance
+assumption, see also previous discussion on an
+[issue](https://github.com/w3c/webappsec-permissions-policy/issues/207) and on a
+[PR](https://github.com/w3c/webappsec-permissions-policy/pull/174) on the
+Permissions Policy specification.
 
 ## Goals
 
-[What is the **end-user need** which this project aims to address? Make this section short, and
-elaborate in the Use cases section.]
+The goal of this proposal is to extend Permissions Policy to dedicated and
+shared workers, in order to enable shipping Permissions Policy gated
+capabilities to those contexts.
+
+This proposal can be extended to service workers, but for now focuses on
+dedicated and shared workers only because they have a simpler model than service
+workers, see [below](#What about service workers?).
 
 ## Non-goals
 
-[If there are "adjacent" goals which may appear to be in scope but aren't,
-enumerate them here. This section may be fleshed out as your design progresses and you encounter necessary technical and other trade-offs.]
+This document does not propose to expose any powerful capability to worker
+contexts directly. That should be evaluated on an API by API basis. We just
+propose to prepare the ground for it by supporting Permissions Policy in
+workers.
 
-## User research
+## Example use case
 
-[If any user research has been conducted to inform your design choices,
-discuss the process and findings. User research should be more common than it is.]
+### SharedArrayBuffer and cross-origin isolation
 
-## Use cases
+SharedArrayBuffers and other APIs that require cross-origin isolation can be
+controlled, in window contexts, by the cross-origin-isolated policy-controlled
+feature. SharedArrayBuffers are exposed to workers, and currently the [html
+standard](https://html.spec.whatwg.org/#worker-processing-model) manually checks
+the creator’s Permissions Policy for dedicated workers, but not for shared
+workers, because of the multiple inheritance issue that this proposal aims to
+solve. This proposal would allow to simplify that by reusing the Permissions
+Policy framework directly also for workers.
 
-[Describe in detail what problems end-users are facing, which this project is trying to solve. A
-common mistake in this section is to take a web developer's or server operator's perspective, which
-makes reviewers worry that the proposal will violate [RFC 8890, The Internet is for End
-Users](https://www.rfc-editor.org/rfc/rfc8890).]
+### Local network access
 
-### Use case 1
+The [Local Network Access](https://wicg.github.io/local-network-access/)
+specification [gates](https://wicg.github.io/local-network-access/#fetching)
+local network requests behind Permissions Policy. Given the absence of
+Permissions Policy checks for workers, it currently forbids local network access
+from workers.
 
-### Use case 2
+This proposal would allow to easily extend that logic to dedicated and shared
+workers.
 
-<!-- In your initial explainer, you shouldn't be attached or appear attached to any of the potential
-solutions you describe below this. -->
+## Proposal
 
-## [Potential Solution]
+While extending Permissions Policy to dedicated workers in the same way as it
+works for iframes could be straightforward, supporting shared and service
+workers requires more care since shared and service workers can be connected to
+several contexts with potentially different effective policies.
 
-[For each related element of the proposed solution - be it an additional JS method, a new object, a new element, a new concept etc., create a section which briefly describes it.]
+The mechanism we propose entails two parts, similar to how Permissions Policy
+works for iframes. On the one hand, worker scripts can specify in a
+Permissions-Policy header the policies which they need in order to run (the
+*declared policies*). On the other hand, the worker’s client can enforce through
+delegation some policies, which we call the *delegated policies*, on the worker
+(depending on which policies are delegated by its ancestors and by using a new
+`allow` parameter when creating the worker).
 
-```js
-// Provide example code - not IDL - demonstrating the design of the feature.
+When starting a worker (or connecting to a shared worker), the user agent will
+compare the two sets (or, to be more specific, dictionaries) of *declared
+policies* and *delegated policies*. Unless the *delegated policies* are laxer
+than the *declared policies*, starting the worker will result in an error.
 
-// If this API can be used on its own to address a user need,
-// link it back to one of the scenarios in the goals section.
+For example, suppose that two workers scripts are served with the following
+Permissions-Policy header:
 
-// If you need to show how to get the feature set up
-// (initialized, or using permissions, etc.), include that too.
+```
+// worker.js, shared-worker.js are served with
+Permissions-Policy: some-capability=(self)
 ```
 
-[Where necessary, provide links to longer explanations of the relevant pre-existing concepts and API.
-If there is no suitable external documentation, you might like to provide supplementary information as an appendix in this document, and provide an internal link where appropriate.]
-
-[If this is already specced, link to the relevant section of the spec.]
-
-[If spec work is in progress, link to the PR or draft of the spec.]
-
-[If you have more potential solutions in mind, add ## Potential Solution 2, 3, etc. sections.]
-
-### How this solution would solve the use cases
-
-[If there are a suite of interacting APIs, show how they work together to solve the use cases described.]
-
-#### Use case 1
-
-[Description of the end-user scenario]
+In order to be started successfully, the workers need to be delegated the
+policy-controlled feature `some-capability`. In particular, starting those
+workers from the top-level document with default Permissions-Policy would
+succeed:
 
 ```js
-// Sample code demonstrating how to use these APIs to address that scenario.
+// index.html (main document), served with no Permissions-Policy header.
+// These would all succeed:
+const worker = new Worker(“./worker.js”);
+const sharedWorker = new SharedWorker(“./shared-worker.js”);
 ```
 
-#### Use case 2
-
-[etc.]
-
-## Detailed design discussion
-
-### [Tricky design choice #1]
-
-[Talk through the tradeoffs in coming to the specific design point you want to make.]
+However, if the Permissions-Policy disables the needed feature, they would fail.
+In particular,
 
 ```js
-// Illustrated with example code.
+// index.html (main document), served with
+// Permissions-Policy: some-capability=().
+
+// The worker will not start. It will trigger worker.onerror.
+const worker = new Worker(“./worker.js”);
+
+// The shared worker will not start. It will trigger sharedWorker.onerror.
+const sharedWorker = new SharedWorker(“./shared-worker.js”);
 ```
 
-[This may be an open question,
-in which case you should link to any active discussion threads.]
+For workers started from cross-origin nested contexts, the Permissions Policy
+inherited by the nested context matters. If the context is not allowed to use
+the feature, then it cannot start a worker which needs that feature:
 
-### [Tricky design choice 2]
+```js
+// index.html (main document), served with no Permissions-Policy header
+<iframe src=”https://cross-origin.test/iframe.html”>
 
-[etc.]
+// https://cross-origin.test/iframe.html
+// The worker will not start. It will trigger worker.onerror.
+const worker = new Worker(“./worker.js”);
+// The shared worker will not start. It will trigger sharedWorker.onerror.
+const sharedWorker = new SharedWorker(“./shared-worker.js”);
+```
+
+For that to work, the nested context needs to be allowed to use the delegated
+capability:
+
+```js
+// index.html (main document), served with no Permissions-Policy header
+<iframe src=”https://cross-origin.test/iframe.html” allow=”some-capability”>
+
+// https://cross-origin.test/iframe.html
+// These would all succeed:
+const worker = new Worker(“./worker.js”);
+const sharedWorker = new SharedWorker(“./shared-worker.js”);
+```
+
+For enabling more granular control when delegating capabilities to workers, we
+also propose to introduce an `allow` parameter to the worker constructor (to be
+passed when creating/connecting to workers) which works analogously as the
+`allow` attribute on iframes:
+
+```js
+// index.html (main document), served with no Permissions-Policy header
+
+// The worker will not start. It will trigger worker.onerror.
+const worker = new Worker(“./worker.js”, {
+  allow = “some-capability ‘none’”
+});
+// The shared worker will not start. It will trigger sharedWorker.onerror.
+const sharedWorker = new SharedWorker(“./shared-worker.js”, {
+  allow = “some-capability ‘none’”
+});
+```
+
+For backwards compatibility, the *declared policies* will be empty if no
+Permissions-Policy header is specified (hence no Permissions Policy error will
+be triggered when the Permissions-Policy header is absent, and the worker will
+just not be allowed to use any policy-controlled feature by default).
+
+We propose to keep the usual syntax for the Permissions-Policy header for
+workers. In particular, this allows to allowlist more origins than just `self`.
+This is allowed but useless, since workers can start other workers, but only of
+the same-origin.
+
+Reporting will work for workers in the same way as it works for documents.
+Potential violations will be reported when starting a worker if there is a
+permissions policy mismatch. Moreover, workers can add `report-to` to their
+`Permissions-Policy` header or deliver a `Permissions-Policy-Report-Only` header
+in order to get Permissions Policy violation reports sent to the relative
+reporting endpoint.
 
 ## Considered alternatives
 
-[This should include as many alternatives as you can,
-from high level architectural decisions down to alternative naming choices.]
+A few alternatives were considered for this design:
 
-### [Alternative 1]
+* Instead of throwing an error, we could just disable the non-delegated
+  policy-controlled feature in the worker (following the same model as for
+  iframes). However, this does not work well with multiple inheritance (shared
+  workers). For example, a shared worker with multiple contexts connecting to it
+  could have inherited different policies depending on which context started it
+  first, resulting in non-predictable behavior and possibly privilege escalation
+  (if the shared worker has broader access than any of its connecting contexts).
 
-[Describe an alternative which was considered,
-and why you decided against it.]
+* We could default the delivered Permissions-Policy of workers as for documents,
+  instead of disabling everything by default. However, this would break
+  backwards compatibility.
 
-### [Alternative 2]
+* We could have a different, simpler syntax for the Permissions-Policy header in
+  workers (and for the `allow` parameter), that just allows enabling/disabling
+  features without control on the list of origins, since there is no need at the
+  moment to support other origins anyway. However, it seems better to keep the
+  same syntax as for documents. Moreover, this is future-proof in case the
+  platform ever allowed cross-origin workers in the future.
 
-[etc.]
+* The complication of triggering an error if there is a policy mismatch is
+  really only needed for shared workers, to ensure that a shared worker is
+  started with a consistent and predictable set of effective policies
+  independently of which context connects to it first. Dedicated workers could
+  follow a simpler model, analogous to iframes, in which the effective policies
+  are just the intersection of the declared policies and the delegated policies.
+  We propose here to accept the additional complication also for dedicated
+  workers in exchange for coherence in the behavior of shared and dedicated
+  workers, although we acknowledge that the alternative is also a viable option.
+
+## What about service workers?
+
+Extending this proposal to service workers should be possible in theory.
+However, service workers have the additional complication that they don’t need
+any explicit logic in another same-origin page for its outgoing requests to be
+intercepted:
+
+```js
+// index.html
+const registration = await navigator.serviceWorker.register("/sw.js", {
+   scope: "/",
+});
+
+// another_page.html
+// This request can be intercepted by sw.js even if this page has no knowledge about it.
+fetch(“./resource.txt”);
+```
+
+For the logic above to apply cleanly to service workers, we would need to
+restrict which clients are controlled by a service worker depending on the
+policy-controlled features needed by the service worker and delegated to the
+client.
+
+Moreover, service workers can be updated, and we would need to take care of a
+potential change in the declared policies upon update.
+
+All of this is certainly doable, but also seems slightly more complicated, which
+is why we preferred to exclude service workers from this proposal for now.
 
 ## Security and Privacy Considerations
 
-[Describe any interesting answers you give to the [Security and Privacy Self-Review
-Questionnaire](https://www.w3.org/TR/security-privacy-questionnaire/) and any interesting ways that
-your feature interacts with [Chromium's Web Platform Security
-Guidelines](https://chromium.googlesource.com/chromium/src/+/master/docs/security/web-platform-security-guidelines.md).]
-
-## Stakeholder Feedback / Opposition
-
-[Implementors and other stakeholders may already have publicly stated positions on this work. If you can, list them here with links to evidence as appropriate.]
-
-- [Implementor A] : Positive
-- [Stakeholder B] : No signals
-- [Implementor C] : Negative
-
-[If appropriate, explain the reasons given by other implementors for their concerns.]
-
-## References & acknowledgements
-
-[Your design will change and be informed by many people; acknowledge them in an ongoing way! It helps build community and, as we only get by through the contributions of many, is only fair.]
-
-[Unless you have a specific reason not to, these should be in alphabetical order.]
-
-Many thanks for valuable feedback and advice from:
-
-- [Person 1]
-- [Person 2]
-- [etc.]
+This proposal in itself does not seem to have any security or privacy impact,
+since it does not expose anything new by itself. Exposing to workers single
+powerful capabilities which are gated behind Permissions Policy should be
+evaluated separately.
