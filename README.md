@@ -149,7 +149,8 @@ the feature, then it cannot start a worker which needs that feature:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
-<iframe src="https://cross-origin.test/iframe.html">
+// Embeds:
+// <iframe src="https://cross-origin.test/iframe.html">
 
 // https://cross-origin.test/iframe.html
 // The worker will not start. It will trigger worker.onerror.
@@ -163,7 +164,8 @@ capability:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
-<iframe src="https://cross-origin.test/iframe.html" allow="some-capability">
+// Embeds:
+// <iframe src="https://cross-origin.test/iframe.html" allow="some-capability">
 
 // https://cross-origin.test/iframe.html
 // These would all succeed:
