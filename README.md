@@ -56,7 +56,7 @@ capabilities to those contexts.
 
 This proposal can be extended to service workers, but for now focuses on
 dedicated and shared workers only because they have a simpler model than service
-workers, see [below](#What about service workers?).
+workers, see [below](#what-about-service-workers).
 
 ## Non-goals
 
