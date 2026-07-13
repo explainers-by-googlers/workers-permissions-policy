@@ -24,6 +24,7 @@ not been approved to ship in Chrome.
 - [Example use case](#example-use-case)
   - [SharedArrayBuffer and cross-origin isolation](#sharedarraybuffer-and-cross-origin-isolation)
   - [Local network access](#local-network-access)
+  - [Connected devices APIs](#connected-devices-apis)
 - [Proposal](#proposal)
 - [Considered alternatives](#considered-alternatives)
 - [What about service workers?](#what-about-service-workers)
@@ -88,6 +89,22 @@ from workers.
 
 This proposal would allow to easily extend that logic to dedicated and shared
 workers.
+
+### Connected devices APIs
+
+Most APIs which allow connecting to external peripherals are currently only
+exposed to documents. However, there have been requests and attempts to extend
+them to workers, in particular:
+
+- [Gamepad API](https://github.com/w3c/gamepad/issues/37)
+- [WebUSB](https://github.com/WICG/webusb/issues/73)
+- [WebHID](https://github.com/WICG/webhid/issues/120)
+- [Web MIDI](https://github.com/WebAudio/web-midi-api/issues/99)
+- [Web Serial](https://github.com/WICG/serial/issues/116)
+
+As those APIs are normally gated behind Permissions Policy, extending
+Permissions Policy to workers seems a prerequisite for shipping those APIs to
+workers in a consistent way.
 
 ## Proposal
 
