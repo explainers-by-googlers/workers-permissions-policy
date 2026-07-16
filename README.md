@@ -200,11 +200,11 @@ passed when creating/connecting to workers) which works analogously as the
 
 // The worker will not start. It will trigger worker.onerror.
 const worker = new Worker("./worker.js", {
-  allow = "some-capability 'none'"
+  allow: "some-capability 'none'"
 });
 // The shared worker will not start. It will trigger sharedWorker.onerror.
 const sharedWorker = new SharedWorker("./shared-worker.js", {
-  allow = "some-capability 'none'"
+  allow: "some-capability 'none'"
 });
 ```
 
