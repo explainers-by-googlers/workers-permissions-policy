@@ -26,8 +26,9 @@ not been approved to ship in Chrome.
   - [Local network access](#local-network-access)
   - [Connected devices APIs](#connected-devices-apis)
 - [Proposal](#proposal)
+  - [Dedicated and shared workers](#dedicated-and-shared-workers)
+  - [Service workers](#service-workers)
 - [Considered alternatives](#considered-alternatives)
-- [What about service workers?](#what-about-service-workers)
 - [Security and Privacy Considerations](#security-and-privacy-considerations)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -51,13 +52,8 @@ Permissions Policy specification.
 
 ## Goals
 
-The goal of this proposal is to extend Permissions Policy to dedicated and
-shared workers, in order to enable shipping Permissions Policy gated
-capabilities to those contexts.
-
-This proposal can be extended to service workers, but for now focuses on
-dedicated and shared workers only because they have a simpler model than service
-workers, see [below](#what-about-service-workers).
+The goal of this proposal is to extend Permissions Policy to workers, in order
+to enable shipping Permissions Policy gated capabilities to those contexts.
 
 ## Non-goals
 
@@ -87,8 +83,7 @@ local network requests behind Permissions Policy. Given the absence of
 Permissions Policy checks for workers, it currently forbids local network access
 from workers.
 
-This proposal would allow to easily extend that logic to dedicated and shared
-workers.
+This proposal would more easily allow to extend that logic to workers.
 
 ### Connected devices APIs
 
@@ -113,13 +108,23 @@ works for iframes could be straightforward, supporting shared and service
 workers requires more care since shared and service workers can be connected to
 several contexts with potentially different effective policies.
 
-The mechanism we propose entails two parts, similar to how Permissions Policy
-works for iframes. On the one hand, worker scripts can specify in a
-Permissions-Policy header the policies which they need in order to run (the
-*declared policies*). On the other hand, the worker’s client can enforce through
-delegation some policies, which we call the *delegated policies*, on the worker
-(depending on which policies are delegated by its ancestors and by using a new
-`allow` parameter when creating the worker).
+We actually propose different models for dedicated and shared workers on the one
+hand, and for service workers on the other hand. For dedicated and shared
+workers we propose a model that takes into account delegation of capabilities
+from their creator contexts, similar to child documents. On the other hand,
+given their unique model, we propose to handle service workers as top-level
+contexts, that control their policy controlled features uniquely through a
+response header.
+
+### Dedicated and shared workers
+
+The mechanism we propose for dedicated and shared workers entails two parts,
+similar to how Permissions Policy works for iframes. On the one hand, worker
+scripts can specify in a `Permissions-Policy` header the policies which they
+need in order to run (the *declared policies*). On the other hand, the worker’s
+client can enforce through delegation some policies, which we call the
+*delegated policies*, on the worker (depending on which policies are delegated
+by its ancestors and by using a new `allow` parameter when creating the worker).
 
 When starting a worker (or connecting to a shared worker), the user agent will
 compare the two sets (or, to be more specific, dictionaries) of *declared
@@ -225,6 +230,44 @@ permissions policy mismatch. Moreover, workers can add `report-to` to their
 in order to get Permissions Policy violation reports sent to the relative
 reporting endpoint.
 
+### Service workers
+
+For service workers, we propose to acknowledge their unique model (which for
+example allows them to run in background, with no clients attached, when
+processing a push message, or lets the user agent start them before a matching
+document in order to intercept the corresponding network request) and treat them
+as top-level contexts. However, given the fact that they effectively run in
+background, we propose to enable policy-controlled features in service workers
+only case-by-case.
+
+In particular, we propose to augment every [policy-controlled
+feature](https://w3c.github.io/webappsec-permissions-policy/#features) with a
+boolean *can be enabled in service workers*. Unless stated otherwise, and in
+particular for all currently defined policy-controlled features, that boolean is
+*false*.
+
+If a policy-controlled feature *cannot be enabled in service workers* (that is,
+the corresponding boolean is *false*), then no service worker can use that
+feature.
+
+We still propose to extend the `Permissions-Policy` header to service workers.
+Through that header, service workers can enable policy-controlled features which
+*can be enabled in service workers*.
+
+For example, given two policy-controlled features `feature-a`, which *can be
+enabled in service workers*, and `feature-b`, which *cannot be enabled in
+service workers*, we would have the following:
+
+- A service worker served with no `Permissions-Policy` header would not be
+  allowed to use `feature-a` and not be allowed to use `feature-b`.
+
+- A service worker served with `Permissions-Policy: feature-a=(self)
+  feature-b=(self)` would be allowed to use `feature-a` but would still not be
+  allowed to use `feature-b`.
+
+More background on what motivated this proposal for service workers is contained
+in [issue 4](https://w3c.github.io/webappsec-permissions-policy/#features).
+
 ## Considered alternatives
 
 A few alternatives were considered for this design:
@@ -257,35 +300,6 @@ A few alternatives were considered for this design:
   We propose here to accept the additional complication also for dedicated
   workers in exchange for coherence in the behavior of shared and dedicated
   workers, although we acknowledge that the alternative is also a viable option.
-
-## What about service workers?
-
-Extending this proposal to service workers should be possible in theory.
-However, service workers have the additional complication that they don’t need
-any explicit logic in another same-origin page for its outgoing requests to be
-intercepted:
-
-```js
-// index.html
-const registration = await navigator.serviceWorker.register("/sw.js", {
-   scope: "/",
-});
-
-// another_page.html
-// This request can be intercepted by sw.js even if this page has no knowledge about it.
-fetch("./resource.txt");
-```
-
-For the logic above to apply cleanly to service workers, we would need to
-restrict which clients are controlled by a service worker depending on the
-policy-controlled features needed by the service worker and delegated to the
-client.
-
-Moreover, service workers can be updated, and we would need to take care of a
-potential change in the declared policies upon update.
-
-All of this is certainly doable, but also seems slightly more complicated, which
-is why we preferred to exclude service workers from this proposal for now.
 
 ## Security and Privacy Considerations
 
