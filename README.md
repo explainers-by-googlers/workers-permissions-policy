@@ -62,7 +62,23 @@ contexts directly. That should be evaluated on an API by API basis. We just
 propose to prepare the ground for it by supporting Permissions Policy in
 workers.
 
-## Example use case
+## Example use cases
+
+### Connected devices APIs
+
+Most APIs which allow connecting to external peripherals are currently only
+exposed to documents. However, there have been requests and attempts to extend
+them to workers, in particular:
+
+- [Gamepad API](https://github.com/w3c/gamepad/issues/37)
+- [WebUSB](https://github.com/WICG/webusb/issues/73)
+- [WebHID](https://github.com/WICG/webhid/issues/120)
+- [Web MIDI](https://github.com/WebAudio/web-midi-api/issues/99)
+- [Web Serial](https://github.com/WICG/serial/issues/116)
+
+As those APIs are normally gated behind Permissions Policy, extending
+Permissions Policy to workers seems a prerequisite for shipping those APIs to
+workers in a consistent way.
 
 ### SharedArrayBuffer and cross-origin isolation
 
@@ -84,22 +100,6 @@ Permissions Policy checks for workers, it currently forbids local network access
 from workers.
 
 This proposal would more easily allow to extend that logic to workers.
-
-### Connected devices APIs
-
-Most APIs which allow connecting to external peripherals are currently only
-exposed to documents. However, there have been requests and attempts to extend
-them to workers, in particular:
-
-- [Gamepad API](https://github.com/w3c/gamepad/issues/37)
-- [WebUSB](https://github.com/WICG/webusb/issues/73)
-- [WebHID](https://github.com/WICG/webhid/issues/120)
-- [Web MIDI](https://github.com/WebAudio/web-midi-api/issues/99)
-- [Web Serial](https://github.com/WICG/serial/issues/116)
-
-As those APIs are normally gated behind Permissions Policy, extending
-Permissions Policy to workers seems a prerequisite for shipping those APIs to
-workers in a consistent way.
 
 ## Proposal
 
