@@ -301,6 +301,11 @@ A few alternatives were considered for this design:
   workers in exchange for coherence in the behavior of shared and dedicated
   workers, although we acknowledge that the alternative is also a viable option.
 
+* We could key shared workers by their delegated permissions policy (i.e. the
+  policies listed in the `allow` parameter when starting the worker, assuming
+  that they are all allowed in the creator context itself) and allow multiple
+  shared workers with the same URL and different policies.
+
 ## Security and Privacy Considerations
 
 This proposal in itself does not seem to have any security or privacy impact,
