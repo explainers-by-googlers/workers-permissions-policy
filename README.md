@@ -118,13 +118,28 @@ response header.
 
 ### Dedicated and shared workers
 
-The mechanism we propose for dedicated and shared workers entails two parts,
-similar to how Permissions Policy works for iframes. On the one hand, worker
-scripts can specify in a `Permissions-Policy` header the policies which they
-need in order to run (the *declared policies*). On the other hand, the worker’s
-client can enforce through delegation some policies, which we call the
+We propose a model that satisfied the following key properties:
+
+- If a document is not allowed to use a certain policy-controlled feature, then
+  any worker it can connect to is allowed to use that feature, either.
+
+- Only a shared worker can run at any given time for a given URL.
+
+- The model is backwards compatible.
+
+The concrete mechanism we propose for dedicated and shared workers entails two
+parts, similar to how Permissions Policy works for iframes. On the one hand,
+worker scripts can specify in a `Permissions-Policy` header the policies which
+they need in order to run (the *declared policies*). On the other hand, the
+worker’s client can enforce through delegation some policies, which we call the
 *delegated policies*, on the worker (depending on which policies are delegated
 by its ancestors and by using a new `allow` parameter when creating the worker).
+
+However, a key difference compared to documents is that the effective policies
+applying to the worker are exactly the *declared policies* specified in the
+`Permissions-Policy` header. If the context starting the worker cannot delegate
+those policies, the worker will not start. By default, if no
+`Permissions-Policy` header is returned, the effective policies are just none.
 
 When starting a worker (or connecting to a shared worker), the user agent will
 compare the two sets (or, to be more specific, dictionaries) of *declared
@@ -198,7 +213,8 @@ const sharedWorker = new SharedWorker("./shared-worker.js");
 For enabling more granular control when delegating capabilities to workers, we
 also propose to introduce an `allow` parameter to the worker constructor (to be
 passed when creating/connecting to workers) which works analogously as the
-`allow` attribute on iframes:
+`allow` attribute on iframes. The `allow` parameter can be used to further
+restrict the policies delegated to the worker:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
@@ -272,17 +288,49 @@ in [issue 4](https://w3c.github.io/webappsec-permissions-policy/#features).
 
 A few alternatives were considered for this design:
 
-* Instead of throwing an error, we could just disable the non-delegated
-  policy-controlled feature in the worker (following the same model as for
-  iframes). However, this does not work well with multiple inheritance (shared
-  workers). For example, a shared worker with multiple contexts connecting to it
-  could have inherited different policies depending on which context started it
-  first, resulting in non-predictable behavior and possibly privilege escalation
-  (if the shared worker has broader access than any of its connecting contexts).
+### Policies controlled by the `allow` parameter
+
+The proposal above takes as source of truth for the policies enabled in the
+worker the `Permissions-Policy` header. Instead, we could decide that the
+effective policies enabled in the worker are the ones delegated in the `allow`
+parameter, with the following rules:
+
+* A dedicated/shared worker is started with the effective policies listed in the
+  `allow` parameter at construction time. By default, all policies are disabled.
+
+* Later connecting to a shared worker with a different set of policies listed in
+  the `allow` parameter throws an error.
+
+* Specifying in the `allow` parameter policies which are not enabled in the
+  context creating the worker throws an error.
+
+* A `Permissions-Policy` header returned by the worker can be used to further
+  restrict the policies of the worker.
+
+### Disable non-delegated policies instead of throwing
+
+Instead of throwing an error, we could just disable the non-delegated
+policy-controlled features in the worker (following the same model as for
+iframes). However, this does not work well with multiple inheritance (shared
+workers). For example, a shared worker with multiple contexts connecting to it
+could have inherited different policies depending on which context started it
+first, resulting in non-predictable behavior and possibly privilege escalation
+(if the shared worker has broader access than any of its connecting contexts).
+
+### Key shared workers by their effective permission policy
+
+We could key shared workers by their delegated permissions policy (i.e. the
+policies listed in the `allow` parameter when starting the worker, assuming that
+they are all allowed in the creator context itself) and allow multiple shared
+workers with the same URL and different policies. That would break the promise
+that there is only one shared worker for a given URL though.
+
+### Other alternatives
 
 * We could default the delivered Permissions-Policy of workers as for documents,
   instead of disabling everything by default. However, this would break
-  backwards compatibility.
+  backwards compatibility (because contexts with stricter policies would now
+  throw an error when starting a worker with default policies).
 
 * We could have a different, simpler syntax for the Permissions-Policy header in
   workers (and for the `allow` parameter), that just allows enabling/disabling
@@ -300,11 +348,6 @@ A few alternatives were considered for this design:
   We propose here to accept the additional complication also for dedicated
   workers in exchange for coherence in the behavior of shared and dedicated
   workers, although we acknowledge that the alternative is also a viable option.
-
-* We could key shared workers by their delegated permissions policy (i.e. the
-  policies listed in the `allow` parameter when starting the worker, assuming
-  that they are all allowed in the creator context itself) and allow multiple
-  shared workers with the same URL and different policies.
 
 ## Security and Privacy Considerations
 
