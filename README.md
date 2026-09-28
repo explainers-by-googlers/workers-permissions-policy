@@ -21,14 +21,20 @@ not been approved to ship in Chrome.
 - [Introduction](#introduction)
 - [Goals](#goals)
 - [Non-goals](#non-goals)
-- [Example use case](#example-use-case)
+- [Example use cases](#example-use-cases)
+  - [Connected devices APIs](#connected-devices-apis)
   - [SharedArrayBuffer and cross-origin isolation](#sharedarraybuffer-and-cross-origin-isolation)
   - [Local network access](#local-network-access)
-  - [Connected devices APIs](#connected-devices-apis)
 - [Proposal](#proposal)
-  - [Dedicated and shared workers](#dedicated-and-shared-workers)
+  - [Permissions-Policy headers](#permissions-policy-headers)
+  - [Dedicated workers](#dedicated-workers)
+  - [Shared workers](#shared-workers)
   - [Service workers](#service-workers)
 - [Considered alternatives](#considered-alternatives)
+  - [Policies controlled by the `Permissions-Policy` header in shared workers](#policies-controlled-by-the-permissions-policy-header-in-shared-workers)
+  - [Disable non-delegated policies instead of throwing for shared workers](#disable-non-delegated-policies-instead-of-throwing-for-shared-workers)
+  - [Key shared workers by their effective permission policy](#key-shared-workers-by-their-effective-permission-policy)
+  - [Other alternatives](#other-alternatives)
 - [Security and Privacy Considerations](#security-and-privacy-considerations)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -104,147 +110,113 @@ This proposal would more easily allow to extend that logic to workers.
 ## Proposal
 
 While extending Permissions Policy to dedicated workers in the same way as it
-works for iframes could be straightforward, supporting shared and service
-workers requires more care since shared and service workers can be connected to
-several contexts with potentially different effective policies.
+works for iframes is straightforward, supporting shared and service workers
+requires more care since shared and service workers can be connected to several
+contexts with potentially different effective policies. For service workers,
+their unique model with their complex lifecycle (including the fact that they
+are implicitly started whenever a matching context is loaded and are
+automatically upgraded) makes delegation of capabilities even harder.
 
-We actually propose different models for dedicated and shared workers on the one
-hand, and for service workers on the other hand. For dedicated and shared
-workers we propose a model that takes into account delegation of capabilities
-from their creator contexts, similar to child documents. On the other hand,
-given their unique model, we propose to handle service workers as top-level
-contexts, that control their policy controlled features uniquely through a
-response header.
+Hence we propose different models for the three types of workers:
 
-### Dedicated and shared workers
+- Dedicated workers will behave like iframes, inheriting their policies from
+  their creator context.
+
+- For shared workers will have their policies set at creation time, and will
+  allow connections only if the connecting context has laxer policies than the
+  ones allowed in the shared worker.
+
+- Service workers, given their unique model, will be treated as top-level
+  contexts.
+
+### Permissions-Policy headers
+
+We propose to support the `Permissions-Policy` and
+`Permissions-Policy-Report-Only` header in dedicated, shared and service
+workers, with the same syntax and meaning as for documents. In particular, the
+headers allow to disable some policy-controlled features in the worker context
+and to control reporting.
+
+Since workers cannot start or embed nested cross-origin contexts, in practice
+specifying allowlists of origins in the `Permissions-Policy` header of workers
+will be useless. The only exception might be the case of a dedicated worker
+starting another dedicated worker with an opaque origin.
+
+### Dedicated workers
+
+Even if this is not covered yet in the specification, some vendors already
+implement Permissions Policy inheritance for dedicated workers, a behavior that
+is also covered by WPTs, see [issue
+5](https://github.com/explainers-by-googlers/workers-permissions-policy/issues/5).
+
+We propose to specify this model for dedicated workers, adding support for the
+`Permissions-Policy` and `Permissions-Policy-Report-Only` headers to further
+restrict the allowed policy-controlled features and for customizing reporting.
+
+### Shared workers
 
 We propose a model that satisfied the following key properties:
 
 - If a document is not allowed to use a certain policy-controlled feature, then
   any worker it can connect to is allowed to use that feature, either.
 
-- Only a shared worker can run at any given time for a given URL.
+- Only one shared worker can run at any given time for a given URL.
 
 - The model is backwards compatible.
 
-The concrete mechanism we propose for dedicated and shared workers entails two
-parts, similar to how Permissions Policy works for iframes. On the one hand,
-worker scripts can specify in a `Permissions-Policy` header the policies which
-they need in order to run (the *declared policies*). On the other hand, the
-worker’s client can enforce through delegation some policies, which we call the
-*delegated policies*, on the worker (depending on which policies are delegated
-by its ancestors and by using a new `allow` parameter when creating the worker).
-
-However, a key difference compared to documents is that the effective policies
-applying to the worker are exactly the *declared policies* specified in the
-`Permissions-Policy` header. If the context starting the worker cannot delegate
-those policies, the worker will not start. By default, if no
-`Permissions-Policy` header is returned, the effective policies are just none.
-
-When starting a worker (or connecting to a shared worker), the user agent will
-compare the two sets (or, to be more specific, dictionaries) of *declared
-policies* and *delegated policies*. Unless the *delegated policies* are laxer
-than the *declared policies*, starting the worker will result in an error.
-
-For example, suppose that two workers scripts are served with the following
-Permissions-Policy header:
-
-```
-// worker.js, shared-worker.js are served with
-Permissions-Policy: some-capability=(self)
-```
-
-In order to be started successfully, the workers need to be delegated the
-policy-controlled feature `some-capability`. In particular, starting those
-workers from the top-level document with default Permissions-Policy would
-succeed:
+The concrete mechanism that we propose is similar to how Permissions Policy
+works for cross-origin iframes (even if shared workers are same-origin!). In
+particular, when starting a shared worker, an `allow` parameter can be used to
+delegate capabilities to the shared worker (with no capabilities delegated by
+default, as for cross-origin iframes).
 
 ```js
-// index.html (main document), served with no Permissions-Policy header.
-// These would all succeed:
-const worker = new Worker("./worker.js");
-const sharedWorker = new SharedWorker("./shared-worker.js");
+const sharedWorker = new SharedWorker("./shared-worker.js",
+                                      {allow: "some-capability"});
 ```
 
-However, if the Permissions-Policy disables the needed feature, they would fail.
-In particular,
+
+If another context later tries to connect to the same shared worker, it must
+specify the same `allow` parameter, otherwise the connection will fail. This is
+similar to how `extendedLifetime` works.
 
 ```js
-// index.html (main document), served with
-// Permissions-Policy: some-capability=().
+const sharedWorker = new SharedWorker("./shared-worker.js",
+                                      {allow: "some-capability"});
 
-// The worker will not start. It will trigger worker.onerror.
-const worker = new Worker("./worker.js");
-
-// The shared worker will not start. It will trigger sharedWorker.onerror.
-const sharedWorker = new SharedWorker("./shared-worker.js");
+// this will result in sharedWorker2.onerror:
+const sharedWorker2 = new SharedWorker("./shared-worker.js");
 ```
 
-For workers started from cross-origin nested contexts, the Permissions Policy
-inherited by the nested context matters. If the context is not allowed to use
-the feature, then it cannot start a worker which needs that feature:
+Differently than for iframes, however, allowlisting in the `allow` header a
+policy-controlled feature which is not enabled in the worker's parent context
+will result in an error:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
 // Embeds:
 // <iframe src="https://cross-origin.test/iframe.html">
+// "some-capability" is disabled in the cross-origin iframe.
 
 // https://cross-origin.test/iframe.html
-// The worker will not start. It will trigger worker.onerror.
-const worker = new Worker("./worker.js");
 // The shared worker will not start. It will trigger sharedWorker.onerror.
-const sharedWorker = new SharedWorker("./shared-worker.js");
+const sharedWorker = new SharedWorker("./shared-worker.js",
+                                      {allow: "some-capability"});
 ```
 
-For that to work, the nested context needs to be allowed to use the delegated
-capability:
 
-```js
-// index.html (main document), served with no Permissions-Policy header
-// Embeds:
-// <iframe src="https://cross-origin.test/iframe.html" allow="some-capability">
+This seems necessary in order to avoid shared workers
+to be created by mistake with less policies than they actually need. (As an
+example, suppose that `http://a.test` contains code to start a shared worker,
+enabling a policy-controlled feature which is essential for the site to work
+properly. If, by mistake, `https://a.test` should end up embedded as a
+cross-origin iframe, that could start a shared worker without the needed
+policy-controlled feature, which in turn could break the functionality of a
+top-level `http://a.test` page opened in another tab.)
 
-// https://cross-origin.test/iframe.html
-// These would all succeed:
-const worker = new Worker("./worker.js");
-const sharedWorker = new SharedWorker("./shared-worker.js");
-```
-
-For enabling more granular control when delegating capabilities to workers, we
-also propose to introduce an `allow` parameter to the worker constructor (to be
-passed when creating/connecting to workers) which works analogously as the
-`allow` attribute on iframes. The `allow` parameter can be used to further
-restrict the policies delegated to the worker:
-
-```js
-// index.html (main document), served with no Permissions-Policy header
-
-// The worker will not start. It will trigger worker.onerror.
-const worker = new Worker("./worker.js", {
-  allow: "some-capability 'none'"
-});
-// The shared worker will not start. It will trigger sharedWorker.onerror.
-const sharedWorker = new SharedWorker("./shared-worker.js", {
-  allow: "some-capability 'none'"
-});
-```
-
-For backwards compatibility, the *declared policies* will be empty if no
-Permissions-Policy header is specified (hence no Permissions Policy error will
-be triggered when the Permissions-Policy header is absent, and the worker will
-just not be allowed to use any policy-controlled feature by default).
-
-We propose to keep the usual syntax for the Permissions-Policy header for
-workers. In particular, this allows to allowlist more origins than just `self`.
-This is allowed but useless, since workers can start other workers, but only of
-the same-origin.
-
-Reporting will work for workers in the same way as it works for documents.
-Potential violations will be reported when starting a worker if there is a
-permissions policy mismatch. Moreover, workers can add `report-to` to their
-`Permissions-Policy` header or deliver a `Permissions-Policy-Report-Only` header
-in order to get Permissions Policy violation reports sent to the relative
-reporting endpoint.
+The `Permissions-Policy` and `Permissions-Policy-Report-Only` headers can be
+used to additionally restrict the set of enabled policy-controlled features and
+to control reporting settings.
 
 ### Service workers
 
@@ -288,34 +260,30 @@ in [issue 4](https://w3c.github.io/webappsec-permissions-policy/#features).
 
 A few alternatives were considered for this design:
 
-### Policies controlled by the `allow` parameter
+### Policies controlled by the `Permissions-Policy` header in shared workers
 
-The proposal above takes as source of truth for the policies enabled in the
-worker the `Permissions-Policy` header. Instead, we could decide that the
-effective policies enabled in the worker are the ones delegated in the `allow`
-parameter, with the following rules:
+An earlier version of this document was proposing, for shared workers, to
+enforce, as effective policies, the policies delivered in the
+`Permissions-Policy` header, and to refuse connections if the creator/connecting
+context could not delegate enough capabilities to satisfy the ones required in
+the `Permissions-Policy` header.
 
-* A dedicated/shared worker is started with the effective policies listed in the
-  `allow` parameter at construction time. By default, all policies are disabled.
+However, it was [pointed
+out](https://github.com/explainers-by-googlers/workers-permissions-policy/issues/3)
+that using the `allow` parameter in `SharedWorkerOptions` better adheres to the
+existing behavior for other properties, like `extendedLifetime`. Moreover, the
+model proposed with the `allow` parameter seems easier to implement and to
+follow, since it replicates the current model for cross-origin iframes.
 
-* Later connecting to a shared worker with a different set of policies listed in
-  the `allow` parameter throws an error.
+### Disable non-delegated policies instead of throwing for shared workers
 
-* Specifying in the `allow` parameter policies which are not enabled in the
-  context creating the worker throws an error.
-
-* A `Permissions-Policy` header returned by the worker can be used to further
-  restrict the policies of the worker.
-
-### Disable non-delegated policies instead of throwing
-
-Instead of throwing an error, we could just disable the non-delegated
-policy-controlled features in the worker (following the same model as for
-iframes). However, this does not work well with multiple inheritance (shared
-workers). For example, a shared worker with multiple contexts connecting to it
-could have inherited different policies depending on which context started it
-first, resulting in non-predictable behavior and possibly privilege escalation
-(if the shared worker has broader access than any of its connecting contexts).
+Instead of triggering an error, we could just disable the non-delegated
+policy-controlled features in the shared worker (following the same model as for
+iframes). However, this does not work well with multiple inheritance. For
+example, a shared worker with multiple contexts connecting to it could have
+inherited different policies depending on which context started it first,
+resulting in non-predictable behavior and possibly privilege escalation (if the
+shared worker has broader access than any of its connecting contexts).
 
 ### Key shared workers by their effective permission policy
 
@@ -327,10 +295,8 @@ that there is only one shared worker for a given URL though.
 
 ### Other alternatives
 
-* We could default the delivered Permissions-Policy of workers as for documents,
-  instead of disabling everything by default. However, this would break
-  backwards compatibility (because contexts with stricter policies would now
-  throw an error when starting a worker with default policies).
+* We could default the `allow` parameter to delegate everything, similar to what
+  happens for same-origin child iframes.
 
 * We could have a different, simpler syntax for the Permissions-Policy header in
   workers (and for the `allow` parameter), that just allows enabling/disabling
@@ -338,16 +304,6 @@ that there is only one shared worker for a given URL though.
   moment to support other origins anyway. However, it seems better to keep the
   same syntax as for documents. Moreover, this is future-proof in case the
   platform ever allowed cross-origin workers in the future.
-
-* The complication of triggering an error if there is a policy mismatch is
-  really only needed for shared workers, to ensure that a shared worker is
-  started with a consistent and predictable set of effective policies
-  independently of which context connects to it first. Dedicated workers could
-  follow a simpler model, analogous to iframes, in which the effective policies
-  are just the intersection of the declared policies and the delegated policies.
-  We propose here to accept the additional complication also for dedicated
-  workers in exchange for coherence in the behavior of shared and dedicated
-  workers, although we acknowledge that the alternative is also a viable option.
 
 ## Security and Privacy Considerations
 
