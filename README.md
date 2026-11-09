@@ -144,14 +144,22 @@ starting another dedicated worker with an opaque origin.
 
 ### Dedicated workers
 
-Even if this is not covered yet in the specification, some vendors already
-implement Permissions Policy inheritance for dedicated workers, a behavior that
-is also covered by WPTs, see [issue
-5](https://github.com/explainers-by-googlers/workers-permissions-policy/issues/5).
+Like iframes, dedicated workers have a single creator context. Hence we propose
+to treat dedicated worker in the same way as we currently treat iframes.
 
-We propose to specify this model for dedicated workers, adding support for the
-`Permissions-Policy` and `Permissions-Policy-Report-Only` headers to further
-restrict the allowed policy-controlled features and for customizing reporting.
+In particular, we would add an `allow` parameter to `WorkerOptions` that has the
+same syntax as the `allow` attribute of iframes, and we would support the
+`Permissions-Policy` and `Permissions-Policy-Report-Only` headers on worker
+script resources. The Permissions Policy of the worker would then be computed
+via [Create a Permissions Policy for a navigable from
+response](https://w3c.github.io/webappsec-permissions-policy/#algo-create-for-navigable)
+in the exact same way as currently done for children documents in iframes.
+
+Note that for same-origin workers this would currently basically result in
+inheriting the parent's Permissions Policy, a behavior which is already
+implemented by some vendors and is also covered by WPTs, see [issue
+5](https://github.com/explainers-by-googlers/workers-permissions-policy/issues/5).
+Only for workers with an opaque-origin that would actually change.
 
 ### Shared workers
 
@@ -190,7 +198,7 @@ const sharedWorker2 = new SharedWorker("./shared-worker.js");
 
 Differently than for iframes, however, allowlisting in the `allow` header a
 policy-controlled feature which is not enabled in the worker's parent context
-will result in an error:
+and cannot be delegated to a nested context will result in an error:
 
 ```js
 // index.html (main document), served with no Permissions-Policy header
